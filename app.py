@@ -45,12 +45,16 @@ def send_whatsapp_reply(to, message):
     return response.text
 
 # Step 3: Webhook to receive messages
-@app.route("/webhook", methods=["POST"])
+@app.route("/webhook", methods=["GET", "POST"])
 def webhook():
+    if request.method == "GET":
+        # Gupshup verification ping – just return 200 OK
+        return "Webhook is live", 200
+
     data = request.json
     user_message = data.get("message")
     sender = data.get("sender")
-    
+
     if not user_message or not sender:
         return jsonify({"error": "Invalid request"}), 400
 
