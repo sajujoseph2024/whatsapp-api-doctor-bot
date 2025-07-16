@@ -23,10 +23,22 @@ def ask_openai(message):
         "model": "gpt-3.5-turbo",
         "messages": [{"role": "user", "content": message}]
     }
-    response = requests.post(url, headers=headers, json=body)
-    return response.json()["choices"][0]["message"]["content"]
 
-# Send reply via Gupshup WhatsApp API
+    response = requests.post(url, headers=headers, json=body, timeout=10)
+
+    # Debug log
+    try:
+        app.logger.error(f"OpenAI response ({response.status_code}): {response.text}")
+    except:
+        pass
+
+    if response.status_code == 200 and "choices" in response.json():
+        return response.json()["choices"][0]["message"]["content"]
+    else:
+        error_msg = response.json().get("error", {}).get("message", "Unknown OpenAI API error")
+        return f"⚠️ OpenAI API error: {error_msg}"
+
+# Send WhatsApp reply using Gupshup
 def send_whatsapp_reply(to, message):
     url = "https://api.gupshup.io/sm/api/v1/msg"
     headers = {
@@ -38,17 +50,17 @@ def send_whatsapp_reply(to, message):
         "source": GUPSHUP_SENDER,
         "destination": to,
         "message": message,
-        "src.name": "Connectify"  # Replace with your Gupshup bot name if different
+        "src.name": "Connectify"  # Replace with your Gupshup bot name
     }
-    response = requests.post(url, headers=headers, data=payload)
+    response = requests.post(url, headers=headers, data=payload, timeout=10)
     return response.text
 
-# Root route for Render and webhook validation
+# Render health check endpoint
 @app.route("/", methods=["GET"])
 def home():
     return "Hello from Render!", 200
 
-# Webhook route for Gupshup
+# Gupshup webhook
 @app.route("/webhook", methods=["GET", "POST"])
 def webhook():
     if request.method == "GET":
@@ -58,10 +70,11 @@ def webhook():
         data = request.get_json()
         app.logger.info(f"Incoming webhook data: {data}")
 
-        # Validate and extract text message
+        # Validate Gupshup payload
         if (
             data.get("type") == "message" and
             "payload" in data and
+            isinstance(data["payload"], dict) and
             "payload" in data["payload"] and
             "text" in data["payload"]["payload"] and
             "sender" in data["payload"] and
@@ -75,13 +88,13 @@ def webhook():
 
             return jsonify({"status": "success", "reply": reply}), 200
         else:
-            return jsonify({"status": "ignored", "reason": "Non-text or malformed message"}), 200
+            return jsonify({"status": "ignored", "reason": "Invalid or unsupported message structure"}), 200
 
     except Exception as e:
         app.logger.error("Webhook error:\n" + traceback.format_exc())
         return jsonify({"error": "Internal Server Error", "details": str(e)}), 500
 
-# Run the Flask app
+# Run app
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
