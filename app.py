@@ -48,8 +48,8 @@ def send_whatsapp_reply(to, message):
 @app.route("/webhook", methods=["GET", "POST"])
 def webhook():
     if request.method == "GET":
-        # Gupshup verification ping – just return 200 OK
-        return "Webhook is live", 200
+        # Gupshup expects JSON response to verify the URL
+        return jsonify({"status": "Webhook is live"}), 200
 
     data = request.json
     user_message = data.get("message")
