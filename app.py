@@ -11,7 +11,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 GUPSHUP_API_KEY = os.getenv("GUPSHUP_API_KEY")
 GUPSHUP_SENDER = os.getenv("GUPSHUP_SENDER")
 
-# Step 1: Ask OpenAI
+# Ask OpenAI for a response
 def ask_openai(message):
     url = "https://api.openai.com/v1/chat/completions"
     headers = {
@@ -26,7 +26,7 @@ def ask_openai(message):
     response = requests.post(url, headers=headers, json=body)
     return response.json()["choices"][0]["message"]["content"]
 
-# Step 2: Send reply via Gupshup
+# Send reply via Gupshup WhatsApp API
 def send_whatsapp_reply(to, message):
     url = "https://api.gupshup.io/sm/api/v1/msg"
     headers = {
@@ -38,30 +38,29 @@ def send_whatsapp_reply(to, message):
         "source": GUPSHUP_SENDER,
         "destination": to,
         "message": message,
-        "src.name": "Connectify"  # your Gupshup bot name
+        "src.name": "Connectify"
     }
 
     response = requests.post(url, headers=headers, data=payload)
     return response.text
 
-# Step 3: Webhook to receive messages
+# Webhook to receive messages
 @app.route("/webhook", methods=["GET", "POST"])
 def webhook():
     if request.method == "GET":
-        # Gupshup expects JSON response to verify the URL
         return jsonify({"status": "Webhook is live"}), 200
 
-    data = request.json
-    user_message = data.get("message")
-    sender = data.get("sender")
-
-    if not user_message or not sender:
-        return jsonify({"error": "Invalid request"}), 400
+    data = request.get_json()
+    try:
+        user_message = data["payload"]["payload"]["text"]
+        sender = data["payload"]["sender"]["phone"]
+    except (KeyError, TypeError):
+        return jsonify({"error": "Invalid Gupshup payload"}), 400
 
     reply = ask_openai(user_message)
     send_whatsapp_reply(sender, reply)
 
-    return jsonify({"status": "success", "reply": reply})
+    return jsonify({"status": "success", "reply": reply}), 200
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
