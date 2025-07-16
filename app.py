@@ -22,7 +22,6 @@ def ask_openai(message):
         "model": "gpt-3.5-turbo",
         "messages": [{"role": "user", "content": message}]
     }
-
     response = requests.post(url, headers=headers, json=body)
     return response.json()["choices"][0]["message"]["content"]
 
@@ -38,13 +37,17 @@ def send_whatsapp_reply(to, message):
         "source": GUPSHUP_SENDER,
         "destination": to,
         "message": message,
-        "src.name": "Connectify"
+        "src.name": "Connectify"  # your Gupshup bot name
     }
-
     response = requests.post(url, headers=headers, data=payload)
     return response.text
 
-# Webhook to receive messages
+# ➕ Required root endpoint for Gupshup validation
+@app.route("/", methods=["GET"])
+def home():
+    return "Hello from Render!", 200
+
+# Webhook to receive messages from Gupshup
 @app.route("/webhook", methods=["GET", "POST"])
 def webhook():
     if request.method == "GET":
