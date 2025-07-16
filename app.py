@@ -38,17 +38,17 @@ def send_whatsapp_reply(to, message):
         "source": GUPSHUP_SENDER,
         "destination": to,
         "message": message,
-        "src.name": "Connectify"  # your Gupshup bot name
+        "src.name": "Connectify"  # Replace with your Gupshup bot name if different
     }
     response = requests.post(url, headers=headers, data=payload)
     return response.text
 
-# Root route (required for Gupshup URL validation)
+# Root route for Render and webhook validation
 @app.route("/", methods=["GET"])
 def home():
     return "Hello from Render!", 200
 
-# Webhook route for receiving WhatsApp messages
+# Webhook route for Gupshup
 @app.route("/webhook", methods=["GET", "POST"])
 def webhook():
     if request.method == "GET":
@@ -56,23 +56,32 @@ def webhook():
 
     try:
         data = request.get_json()
-        app.logger.info(f"Incoming data: {data}")
+        app.logger.info(f"Incoming webhook data: {data}")
 
-        # Extract message and sender phone from Gupshup payload
-        user_message = data["payload"]["payload"]["text"]
-        sender = data["payload"]["sender"]["phone"]
+        # Validate and extract text message
+        if (
+            data.get("type") == "message" and
+            "payload" in data and
+            "payload" in data["payload"] and
+            "text" in data["payload"]["payload"] and
+            "sender" in data["payload"] and
+            "phone" in data["payload"]["sender"]
+        ):
+            user_message = data["payload"]["payload"]["text"]
+            sender = data["payload"]["sender"]["phone"]
 
-        # Call OpenAI and send response
-        reply = ask_openai(user_message)
-        send_whatsapp_reply(sender, reply)
+            reply = ask_openai(user_message)
+            send_whatsapp_reply(sender, reply)
 
-        return jsonify({"status": "success", "reply": reply}), 200
+            return jsonify({"status": "success", "reply": reply}), 200
+        else:
+            return jsonify({"status": "ignored", "reason": "Non-text or malformed message"}), 200
 
     except Exception as e:
         app.logger.error("Webhook error:\n" + traceback.format_exc())
         return jsonify({"error": "Internal Server Error", "details": str(e)}), 500
 
-# Run app
+# Run the Flask app
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
