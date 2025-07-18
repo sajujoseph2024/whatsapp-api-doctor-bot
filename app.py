@@ -9,34 +9,36 @@ load_dotenv()
 app = Flask(__name__)
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://openrouter.ai/api/v1/chat/completions")
 GUPSHUP_API_KEY = os.getenv("GUPSHUP_API_KEY")
 GUPSHUP_SENDER = os.getenv("GUPSHUP_SENDER")
 
-# Ask OpenAI for a response
+# Ask OpenRouter for a response
 def ask_openai(message):
-    url = "https://api.openai.com/v1/chat/completions"
+    url = OPENAI_BASE_URL
     headers = {
         "Authorization": f"Bearer {OPENAI_API_KEY}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://yourdomain.com",   # optional but recommended
+        "X-Title": "ConnectifyBot"                  # visible in OpenRouter dashboard
     }
     body = {
-        "model": "gpt-3.5-turbo",
+        "model": "openchat/openchat-3.5-0106",      # free model on OpenRouter
         "messages": [{"role": "user", "content": message}]
     }
 
     response = requests.post(url, headers=headers, json=body, timeout=10)
 
-    # Debug log
     try:
-        app.logger.error(f"OpenAI response ({response.status_code}): {response.text}")
+        app.logger.error(f"OpenRouter response ({response.status_code}): {response.text}")
     except:
         pass
 
     if response.status_code == 200 and "choices" in response.json():
         return response.json()["choices"][0]["message"]["content"]
     else:
-        error_msg = response.json().get("error", {}).get("message", "Unknown OpenAI API error")
-        return f"⚠️ OpenAI API error: {error_msg}"
+        error_msg = response.json().get("error", {}).get("message", "Unknown OpenRouter error")
+        return f"⚠️ OpenRouter error: {error_msg}"
 
 # Send WhatsApp reply using Gupshup
 def send_whatsapp_reply(to, message):
@@ -50,17 +52,17 @@ def send_whatsapp_reply(to, message):
         "source": GUPSHUP_SENDER,
         "destination": to,
         "message": message,
-        "src.name": "Connectify"  # Replace with your Gupshup bot name
+        "src.name": "Connectify"  # your Gupshup bot name
     }
     response = requests.post(url, headers=headers, data=payload, timeout=10)
     return response.text
 
-# Render health check endpoint
+# Root route (Render + webhook validation)
 @app.route("/", methods=["GET"])
 def home():
     return "Hello from Render!", 200
 
-# Gupshup webhook
+# Webhook for Gupshup messages
 @app.route("/webhook", methods=["GET", "POST"])
 def webhook():
     if request.method == "GET":
@@ -94,7 +96,7 @@ def webhook():
         app.logger.error("Webhook error:\n" + traceback.format_exc())
         return jsonify({"error": "Internal Server Error", "details": str(e)}), 500
 
-# Run app
+# Run app locally (Render uses gunicorn)
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
