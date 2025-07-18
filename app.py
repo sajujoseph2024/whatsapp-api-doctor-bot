@@ -8,27 +8,30 @@ load_dotenv()
 
 app = Flask(__name__)
 
+# Environment variables
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://openrouter.ai/api/v1/chat/completions")
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://openrouter.ai/api/v1")
 GUPSHUP_API_KEY = os.getenv("GUPSHUP_API_KEY")
 GUPSHUP_SENDER = os.getenv("GUPSHUP_SENDER")
 
-# Ask OpenRouter for a response
+
+# Ask OpenRouter (ChatGPT) for a response
 def ask_openai(message):
-    url = OPENAI_BASE_URL
+    url = f"{OPENAI_BASE_URL}/chat/completions"
     headers = {
         "Authorization": f"Bearer {OPENAI_API_KEY}",
         "Content-Type": "application/json",
-        "HTTP-Referer": "https://yourdomain.com",   # optional but recommended
-        "X-Title": "ConnectifyBot"                  # visible in OpenRouter dashboard
+        "HTTP-Referer": "https://whatsapp-api-doctor-bot-1.onrender.com",  # Recommended by OpenRouter
+        "X-Title": "Connectify WhatsApp Bot"
     }
     body = {
-        "model": "openchat/openchat-3.5-0106",      # free model on OpenRouter
+        "model": "openchat/openchat-7b",  # Free good model; you can change to another supported one
         "messages": [{"role": "user", "content": message}]
     }
 
     response = requests.post(url, headers=headers, json=body, timeout=10)
 
+    # Debug log
     try:
         app.logger.error(f"OpenRouter response ({response.status_code}): {response.text}")
     except:
@@ -37,10 +40,11 @@ def ask_openai(message):
     if response.status_code == 200 and "choices" in response.json():
         return response.json()["choices"][0]["message"]["content"]
     else:
-        error_msg = response.json().get("error", {}).get("message", "Unknown OpenRouter error")
-        return f"⚠️ OpenRouter error: {error_msg}"
+        error_msg = response.json().get("error", {}).get("message", "Unknown error")
+        return f"⚠️ OpenRouter API error: {error_msg}"
 
-# Send WhatsApp reply using Gupshup
+
+# Send reply via Gupshup WhatsApp API
 def send_whatsapp_reply(to, message):
     url = "https://api.gupshup.io/sm/api/v1/msg"
     headers = {
@@ -52,17 +56,19 @@ def send_whatsapp_reply(to, message):
         "source": GUPSHUP_SENDER,
         "destination": to,
         "message": message,
-        "src.name": "Connectify"  # your Gupshup bot name
+        "src.name": "Connectify"  # Your Gupshup app name
     }
     response = requests.post(url, headers=headers, data=payload, timeout=10)
     return response.text
 
-# Root route (Render + webhook validation)
+
+# Health check (for Render)
 @app.route("/", methods=["GET"])
 def home():
     return "Hello from Render!", 200
 
-# Webhook for Gupshup messages
+
+# Gupshup Webhook handler
 @app.route("/webhook", methods=["GET", "POST"])
 def webhook():
     if request.method == "GET":
@@ -75,8 +81,7 @@ def webhook():
         # Validate Gupshup payload
         if (
             data.get("type") == "message" and
-            "payload" in data and
-            isinstance(data["payload"], dict) and
+            isinstance(data.get("payload"), dict) and
             "payload" in data["payload"] and
             "text" in data["payload"]["payload"] and
             "sender" in data["payload"] and
@@ -90,13 +95,14 @@ def webhook():
 
             return jsonify({"status": "success", "reply": reply}), 200
         else:
-            return jsonify({"status": "ignored", "reason": "Invalid or unsupported message structure"}), 200
+            return jsonify({"status": "ignored", "reason": "Invalid message structure"}), 200
 
     except Exception as e:
         app.logger.error("Webhook error:\n" + traceback.format_exc())
         return jsonify({"error": "Internal Server Error", "details": str(e)}), 500
 
-# Run app locally (Render uses gunicorn)
+
+# Run the Flask app locally (Render uses gunicorn)
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
