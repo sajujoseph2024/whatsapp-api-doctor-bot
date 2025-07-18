@@ -8,7 +8,7 @@ load_dotenv()
 
 app = Flask(__name__)
 
-# Load environment variables
+# Environment variables
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_BASE_URL = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama3-8b-8192")
@@ -17,7 +17,7 @@ GUPSHUP_API_KEY = os.getenv("GUPSHUP_API_KEY")
 GUPSHUP_SENDER = os.getenv("GUPSHUP_SENDER")
 
 
-# Ask Groq for a response with system prompt
+# Function to get response from Groq (doctor assistant prompt)
 def ask_groq(message):
     url = f"{GROQ_BASE_URL}/chat/completions"
     headers = {
@@ -29,28 +29,27 @@ def ask_groq(message):
         "messages": [
             {
                 "role": "system",
-                "content": (
-                    "You are a friendly and knowledgeable virtual doctor assistant. "
-                    "You help users with common health questions, symptoms, and wellness advice, "
-                    "but always remind them to consult a real doctor for serious issues."
-                )
+                "content": "You are a helpful and friendly virtual doctor assistant. You can offer general health advice, symptom suggestions, and wellness tips, but always remind the user to consult a real doctor for serious conditions."
             },
-            {"role": "user", "content": message}
+            {
+                "role": "user",
+                "content": message
+            }
         ]
     }
 
     response = requests.post(url, headers=headers, json=body, timeout=10)
 
-    # Debug response
-    app.logger.error(f"Groq response ({response.status_code}): {response.text}")
-
-    if response.status_code == 200 and "choices" in response.json():
-        return response.json()["choices"][0]["message"]["content"]
+    # Improved logging clarity
+    if response.status_code != 200:
+        app.logger.error(f"Groq error ({response.status_code}): {response.text}")
+        return f"⚠️ Groq API error ({response.status_code}): {response.json().get('error', {}).get('message', 'Unknown error')}"
     else:
-        return f"⚠️ Groq API error: {response.json().get('error', {}).get('message', 'Unknown error')}"
+        app.logger.info(f"Groq success ({response.status_code}): {response.text}")
+        return response.json()["choices"][0]["message"]["content"]
 
 
-# Send WhatsApp reply via Gupshup
+# Function to send reply on WhatsApp via Gupshup
 def send_whatsapp_reply(to, message):
     url = "https://api.gupshup.io/sm/api/v1/msg"
     headers = {
@@ -68,13 +67,13 @@ def send_whatsapp_reply(to, message):
     return response.text
 
 
-# Health check
+# Health check endpoint
 @app.route("/", methods=["GET"])
 def home():
     return "Hello from Render!", 200
 
 
-# Webhook handler
+# Webhook endpoint for Gupshup
 @app.route("/webhook", methods=["GET", "POST"])
 def webhook():
     if request.method == "GET":
@@ -84,15 +83,14 @@ def webhook():
         data = request.get_json()
         app.logger.info(f"Incoming webhook data: {data}")
 
-        # Validate and extract message
+        # Validate Gupshup message
         if (
-            data.get("type") == "message"
-            and "payload" in data
-            and isinstance(data["payload"], dict)
-            and "payload" in data["payload"]
-            and "text" in data["payload"]["payload"]
-            and "sender" in data["payload"]
-            and "phone" in data["payload"]["sender"]
+            data.get("type") == "message" and
+            isinstance(data.get("payload"), dict) and
+            "payload" in data["payload"] and
+            "text" in data["payload"]["payload"] and
+            "sender" in data["payload"] and
+            "phone" in data["payload"]["sender"]
         ):
             user_message = data["payload"]["payload"]["text"]
             sender = data["payload"]["sender"]["phone"]
@@ -102,14 +100,14 @@ def webhook():
 
             return jsonify({"status": "success", "reply": reply}), 200
         else:
-            return jsonify({"status": "ignored", "reason": "Invalid or unsupported message structure"}), 200
+            return jsonify({"status": "ignored", "reason": "Invalid message structure"}), 200
 
     except Exception as e:
         app.logger.error("Webhook error:\n" + traceback.format_exc())
         return jsonify({"error": "Internal Server Error", "details": str(e)}), 500
 
 
-# Run locally (for dev only)
+# Start app on Render or local port
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
