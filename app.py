@@ -8,24 +8,36 @@ load_dotenv()
 
 app = Flask(__name__)
 
-# Load from .env
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-GROQ_BASE_URL = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama3-8b-8192")
 GUPSHUP_API_KEY = os.getenv("GUPSHUP_API_KEY")
 GUPSHUP_SENDER = os.getenv("GUPSHUP_SENDER")
 
 
-# Call Groq API for response
+# Ask Groq (Mixtral) for a response
 def ask_groq(message):
-    url = f"{GROQ_BASE_URL}/chat/completions"
+    url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json"
     }
     body = {
-        "model": GROQ_MODEL,
-        "messages": [{"role": "user", "content": message}]
+        "model": "mixtral-8x7b-32768",
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "You are a helpful and knowledgeable AI health assistant. "
+                    "You are friendly, empathetic, and explain things clearly. "
+                    "Always provide safe, general health guidance. "
+                    "If the user asks anything urgent, dangerous, or needing diagnosis, remind them "
+                    "to consult a licensed medical professional. You are not a doctor."
+                )
+            },
+            {
+                "role": "user",
+                "content": message
+            }
+        ]
     }
 
     response = requests.post(url, headers=headers, json=body, timeout=10)
@@ -42,7 +54,7 @@ def ask_groq(message):
         return f"⚠️ Groq API error: {error_msg}"
 
 
-# Send message via Gupshup
+# Send reply via Gupshup WhatsApp API
 def send_whatsapp_reply(to, message):
     url = "https://api.gupshup.io/sm/api/v1/msg"
     headers = {
@@ -54,19 +66,19 @@ def send_whatsapp_reply(to, message):
         "source": GUPSHUP_SENDER,
         "destination": to,
         "message": message,
-        "src.name": "Connectify"  # Your Gupshup bot name
+        "src.name": "Connectify"  # your bot name
     }
-    response = requests.post(url, headers=headers, data=payload)
+    response = requests.post(url, headers=headers, data=payload, timeout=10)
     return response.text
 
 
-# Root health check
+# Home route (health check)
 @app.route("/", methods=["GET"])
 def home():
     return "Hello from Render!", 200
 
 
-# Webhook endpoint
+# Gupshup Webhook
 @app.route("/webhook", methods=["GET", "POST"])
 def webhook():
     if request.method == "GET":
@@ -76,13 +88,14 @@ def webhook():
         data = request.get_json()
         app.logger.info(f"Incoming webhook data: {data}")
 
+        # Validate and extract message
         if (
-            data.get("type") == "message"
-            and isinstance(data.get("payload"), dict)
-            and "payload" in data["payload"]
-            and "text" in data["payload"]["payload"]
-            and "sender" in data["payload"]
-            and "phone" in data["payload"]["sender"]
+            data.get("type") == "message" and
+            isinstance(data.get("payload"), dict) and
+            "payload" in data["payload"] and
+            "text" in data["payload"]["payload"] and
+            "sender" in data["payload"] and
+            "phone" in data["payload"]["sender"]
         ):
             user_message = data["payload"]["payload"]["text"]
             sender = data["payload"]["sender"]["phone"]
